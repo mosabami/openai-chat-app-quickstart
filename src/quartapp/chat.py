@@ -1,6 +1,5 @@
 import json
 import os
-
 from azure.identity.aio import (
     AzureDeveloperCliCredential,
     ChainedTokenCredential,
@@ -8,6 +7,7 @@ from azure.identity.aio import (
     get_bearer_token_provider,
 )
 from openai import AsyncAzureOpenAI
+from azure.storage.blob.aio import BlobServiceClient
 from quart import (
     Blueprint,
     Response,
@@ -19,10 +19,8 @@ from quart import (
 
 bp = Blueprint("chat", __name__, template_folder="templates", static_folder="static")
 
-
 @bp.before_app_serving
 async def configure_openai():
-
     # Use ManagedIdentityCredential with the client_id for user-assigned managed identities
     user_assigned_managed_identity_credential = ManagedIdentityCredential(client_id=os.getenv("AZURE_CLIENT_ID"))
 
@@ -30,13 +28,6 @@ async def configure_openai():
     azure_dev_cli_credential = AzureDeveloperCliCredential(tenant_id=os.getenv("AZURE_TENANT_ID"), process_timeout=60)
 
     # Create a ChainedTokenCredential with ManagedIdentityCredential and AzureDeveloperCliCredential
-    #  - ManagedIdentityCredential is used for deployment on Azure Container Apps
-
-    #  - AzureDeveloperCliCredential is used for local development
-    # The order of the credentials is important, as the first valid token is used
-    # For more information check out:
-
-    # https://learn.microsoft.com/azure/developer/python/sdk/authentication/credential-chains?tabs=ctc#chainedtokencredential-overview
     azure_credential = ChainedTokenCredential(user_assigned_managed_identity_credential, azure_dev_cli_credential)
     current_app.logger.info("Using Azure OpenAI with credential")
 
@@ -56,16 +47,26 @@ async def configure_openai():
     # Set the model name to the Azure OpenAI model deployment name
     bp.openai_model = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
 
+    # Configure Azure Blob Storage client
+    storage_account_url = os.getenv("AZURE_STORAGE_ACCOUNT_URL")
+    if storage_account_url:
+        bp.blob_service_client = BlobServiceClient(
+            account_url=storage_account_url,
+            credential=azure_credential
+        )
+    else:
+        bp.blob_service_client = None
+        current_app.logger.warning("AZURE_STORAGE_ACCOUNT_URL is not set. File uploads will be disabled.")
 
 @bp.after_app_serving
 async def shutdown_openai():
     await bp.openai_client.close()
-
+    if bp.blob_service_client:
+        await bp.blob_service_client.close()
 
 @bp.get("/")
 async def index():
     return await render_template("index.html")
-
 
 @bp.post("/chat/stream")
 async def chat_handler():
@@ -94,3 +95,32 @@ async def chat_handler():
             yield json.dumps({"error": str(e)}, ensure_ascii=False) + "\n"
 
     return Response(response_stream())
+
+@bp.post("/upload")
+async def upload_file():
+    if not bp.blob_service_client:
+        current_app.logger.error("File upload is disabled. Missing Azure Storage account configuration.")
+        return {"error": "File upload is disabled. Missing Azure Storage account configuration."}, 500
+
+    files = await request.files
+    if "file" not in files:
+        current_app.logger.error("No file part in the request.")
+        return {"error": "No file part"}, 400
+
+    file = files["file"]
+    if file.filename == "":
+        current_app.logger.error("No selected file.")
+        return {"error": "No selected file"}, 400
+
+    try:
+        container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME")
+        if not container_name:
+            current_app.logger.error("AZURE_STORAGE_CONTAINER_NAME is not set.")
+            return {"error": "Container name is not set"}, 500
+
+        blob_client = bp.blob_service_client.get_blob_client(container=container_name, blob=file.filename)
+        await blob_client.upload_blob(file.stream, overwrite=True)
+        return {"message": "File uploaded successfully"}, 200
+    except Exception as e:
+        current_app.logger.error(f"Error uploading file: {e}")
+        return {"error": str(e)}, 500

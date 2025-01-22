@@ -25,6 +25,8 @@ azure-core==1.31.0
     # via azure-identity
 azure-identity==1.19.0
     # via quartapp (pyproject.toml)
+azure-storage-blob==12.14.1
+    # via quartapp (pyproject.toml)
 blinker==1.8.2
     # via
     #   flask

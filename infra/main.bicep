@@ -45,7 +45,7 @@ param openAiResourceGroupName string = ''
   'switzerlandnorth'
   'uksouth'
   'westeurope'
-  'westu'
+  'westus'
   'westus3'
 ])
 @metadata({
@@ -70,7 +70,6 @@ param createAzureOpenAi bool // Set in main.parameters.json
 
 @description('Azure OpenAI endpoint to use. If provided, no Azure OpenAI instance will be created.')
 param openAiEndpoint string = ''
-
 
 var resourceToken = toLower(uniqueString(subscription().id, name, location))
 var tags = { 'azd-env-name': name }
@@ -139,6 +138,17 @@ module containerApps 'core/host/container-apps.bicep' = {
   }
 }
 
+// Storage account
+module storageAccount 'core/storage/storage-account.bicep' = {
+  name: 'storage-account'
+  scope: resourceGroup
+  params: {
+    name: 'rayoragstorage'
+    location: location
+    tags: tags
+  }
+}
+
 // Container app frontend
 module aca 'aca.bicep' = {
   name: 'aca'
@@ -154,9 +164,11 @@ module aca 'aca.bicep' = {
     openAiEndpoint: createAzureOpenAi ? openAi.outputs.endpoint : openAiEndpoint
     openAiApiVersion: openAiApiVersion
     exists: acaExists
+    azureStorageAccountUrl: storageAccount.outputs.storageAccountUrl
+    azureStorageContainerName: storageAccount.outputs.containerName
+    azureStorageAccountId: storageAccount.outputs.storageAccountId
   }
 }
-
 
 module openAiRoleUser 'core/security/role.bicep' = if (createRoleForUser && createAzureOpenAi) {
   scope: openAiResourceGroup
@@ -167,7 +179,6 @@ module openAiRoleUser 'core/security/role.bicep' = if (createRoleForUser && crea
     principalType: 'User'
   }
 }
-
 
 module openAiRoleBackend 'core/security/role.bicep' = if (createAzureOpenAi) {
   scope: openAiResourceGroup
@@ -196,4 +207,3 @@ output SERVICE_ACA_IMAGE_NAME string = aca.outputs.SERVICE_ACA_IMAGE_NAME
 output AZURE_CONTAINER_ENVIRONMENT_NAME string = containerApps.outputs.environmentName
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerApps.outputs.registryLoginServer
 output AZURE_CONTAINER_REGISTRY_NAME string = containerApps.outputs.registryName
-

@@ -11,6 +11,10 @@ param openAiDeploymentName string
 param openAiEndpoint string
 param openAiApiVersion string
 
+param azureStorageAccountUrl string
+param azureStorageContainerName string
+param azureStorageAccountId string
+
 resource acaIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: identityName
   location: location
@@ -38,6 +42,14 @@ var env = [
     name: 'AZURE_CLIENT_ID'
     value: acaIdentity.properties.clientId
   }
+  {
+    name: 'AZURE_STORAGE_ACCOUNT_URL'
+    value: azureStorageAccountUrl
+  }
+  {
+    name: 'AZURE_STORAGE_CONTAINER_NAME'
+    value: azureStorageContainerName
+  }
 ]
 
 module app 'core/host/container-app-upsert.bicep' = {
@@ -52,6 +64,16 @@ module app 'core/host/container-app-upsert.bicep' = {
     containerRegistryName: containerRegistryName
     env: env
     targetPort: 50505
+  }
+}
+
+resource roleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(azureStorageAccountId, 'manual', 'StorageBlobDataContributor')
+  scope: resourceGroup()
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe') // Storage Blob Data Contributor
+    principalId: acaIdentity.properties.principalId
+    principalType: 'ServicePrincipal'
   }
 }
 
