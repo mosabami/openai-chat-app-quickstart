@@ -1,13 +1,17 @@
 import json
 import os
+
 from azure.identity.aio import (
     AzureDeveloperCliCredential,
     ChainedTokenCredential,
     ManagedIdentityCredential,
     get_bearer_token_provider,
 )
+
+from azure.identity import ManagedIdentityCredential as SyncManIdent
 from openai import AsyncAzureOpenAI
 from azure.storage.blob.aio import BlobServiceClient
+from azure.search.documents.aio import SearchClient
 from quart import (
     Blueprint,
     Response,
@@ -16,6 +20,8 @@ from quart import (
     request,
     stream_with_context,
 )
+
+from quartapp.rag import create_or_update_search_index, process_pdf_upload
 
 bp = Blueprint("chat", __name__, template_folder="templates", static_folder="static")
 
@@ -58,11 +64,28 @@ async def configure_openai():
         bp.blob_service_client = None
         current_app.logger.warning("AZURE_STORAGE_ACCOUNT_URL is not set. File uploads will be disabled.")
 
+    # Configure Azure Search client
+    search_service_url = os.getenv("AZURE_SEARCH_SERVICE_URL")
+    if search_service_url:
+        bp.search_client = SearchClient(
+            endpoint=search_service_url,
+            index_name="pdf-index",
+            credential=azure_credential
+        )
+    else:
+        bp.search_client = None
+        current_app.logger.warning("AZURE_SEARCH_SERVICE_URL is not set. Search functionality will be disabled.")
+
+    # Create or update the search index
+    await create_or_update_search_index()
+
 @bp.after_app_serving
 async def shutdown_openai():
     await bp.openai_client.close()
     if bp.blob_service_client:
         await bp.blob_service_client.close()
+    if bp.search_client:
+        await bp.search_client.close()
 
 @bp.get("/")
 async def index():
@@ -113,14 +136,10 @@ async def upload_file():
         return {"error": "No selected file"}, 400
 
     try:
-        container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME")
-        if not container_name:
-            current_app.logger.error("AZURE_STORAGE_CONTAINER_NAME is not set.")
-            return {"error": "Container name is not set"}, 500
-
-        blob_client = bp.blob_service_client.get_blob_client(container=container_name, blob=file.filename)
-        await blob_client.upload_blob(file.stream, overwrite=True)
-        return {"message": "File uploaded successfully"}, 200
+        formrecognizercredential = SyncManIdent(client_id=os.getenv("AZURE_CLIENT_ID"))
+        result =  await process_pdf_upload(file, bp, formrecognizercredential)
+        # result =  process_pdf_upload(file, bp)
+        return result
     except Exception as e:
         current_app.logger.error(f"Error uploading file: {e}")
         return {"error": str(e)}, 500

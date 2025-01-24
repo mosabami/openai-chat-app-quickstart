@@ -27,6 +27,9 @@ azure-identity==1.19.0
     # via quartapp (pyproject.toml)
 azure-storage-blob==12.14.1
     # via quartapp (pyproject.toml)
+azure-search-documents==11.4.0
+azure-ai-formrecognizer==3.2.0  # Add thi
+azure-ai-documentintelligence==1.0.0b4
 blinker==1.8.2
     # via
     #   flask
