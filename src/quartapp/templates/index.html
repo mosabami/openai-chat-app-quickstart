@@ -85,6 +85,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@microsoft/ai-chat-protocol@1.0.0-beta.20240610.1/dist/iife/index.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha3/dist/js/bootstrap.bundle.min.js" integrity="sha384-ENjdO4Dr2bkBIFxQpeoTz1HIcje39Wm4jDKdf19U8gI4ddQ3GYNS7NTKfAdVQSZe" crossorigin="anonymous"></script>
     <script>
+        const maxMessages = 10; // Variable to hold the maximum number of messages
         const form = document.getElementById("chat-form");
         const messageInput = document.getElementById("message");
         const targetContainer = document.getElementById("messages");
@@ -111,6 +112,10 @@
                 "role": "user",
                 "content": message
             });
+            // Keep only the last maxMessages messages
+            if (messages.length > maxMessages) {
+                messages.splice(0, messages.length - maxMessages);
+            }
 
             try {
                 const result = await client.getStreamedCompletion(messages);
@@ -137,6 +142,10 @@
                     "role": "assistant",
                     "content": answer
                 });
+                // Keep only the last maxMessages messages
+                if (messages.length > maxMessages) {
+                    messages.splice(0, messages.length - maxMessages);
+                }
 
                 messageInput.value = "";
             } catch (error) {

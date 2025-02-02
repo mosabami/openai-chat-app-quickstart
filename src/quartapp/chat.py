@@ -25,6 +25,13 @@ from quartapp.rag import create_or_update_search_index, process_pdf_upload
 
 bp = Blueprint("chat", __name__, template_folder="templates", static_folder="static")
 
+indexName = os.getenv("AZURE_SEARCH_INDEX_NAME")
+
+if indexName:
+    current_app.logger.info("Using Azure Search index: %s", indexName)
+else:
+    indexName = "inddd"
+
 @bp.before_app_serving
 async def configure_openai():
     # Use ManagedIdentityCredential with the client_id for user-assigned managed identities
@@ -69,7 +76,7 @@ async def configure_openai():
     if search_service_url:
         bp.search_client = SearchClient(
             endpoint=search_service_url,
-            index_name="pdf-index",
+            index_name=indexName,
             credential=azure_credential
         )
     else:
@@ -77,7 +84,10 @@ async def configure_openai():
         current_app.logger.warning("AZURE_SEARCH_SERVICE_URL is not set. Search functionality will be disabled.")
 
     # Create or update the search index
-    await create_or_update_search_index()
+    try:
+        await create_or_update_search_index()
+    except Exception as e:
+        current_app.logger.error(f"Error creating or updating search index: {e}")
 
 @bp.after_app_serving
 async def shutdown_openai():

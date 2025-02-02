@@ -15,6 +15,7 @@ from azure.search.documents.indexes.models import (
 from azure.search.documents.aio import SearchClient
 from azure.ai.formrecognizer.aio import DocumentAnalysisClient
 from azure.identity.aio import ManagedIdentityCredential
+import base64
 
 from azure.ai.documentintelligence import DocumentIntelligenceClient
 from azure.ai.documentintelligence.models import AnalyzeResult
@@ -27,7 +28,24 @@ from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPerm
 # Create a credential object
 credential = DefaultAzureCredential()
 
+indexName = os.getenv("AZURE_SEARCH_INDEX_NAME")
 
+if indexName:
+    current_app.logger.info("Using Azure Search index: %s", indexName)
+else:
+    indexName = "inddd"
+
+
+try:
+    chunkSize = int(os.getenv("AZURE_SEARCH_CHUNK_SIZE", "500").strip())
+except ValueError:
+    chunkSize = 500
+    current_app.logger.warning("Invalid AZURE_SEARCH_CHUNK_SIZE value. Using default: 500")
+try:
+    Overlap = int(os.getenv("AZURE_SEARCH_CHUNK_SIZE_OVERLAP", "80").strip())
+except ValueError:
+    Overlap = 80
+    current_app.logger.warning("Invalid AZURE_SEARCH_CHUNK_SIZE_OVERLAP value. Using default: 80")
 
 # Set your Azure OpenAI endpoint
 azure_openai_endpoint = "https://your-custom-endpoint.openai.azure.com/"
@@ -45,7 +63,7 @@ async def verify_index(search_client):
 
     index_client = search_client
 
-    index = await index_client.get_index("pdf-index")
+    index = await index_client.get_index(indexName)
     info = {}
     for field in index.fields:
         if field.name == "content_vector":
@@ -58,6 +76,19 @@ async def verify_index(search_client):
         break
     return info
 
+# CHANGED: Helper function to chunk text
+def chunk_text(text, chunk_size=chunkSize, overlap=Overlap):
+    """Split text into chunks of length `chunk_size`, with overlapping of `overlap` chars."""
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = min(start + chunk_size, len(text))
+        chunk = text[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        start += (chunk_size - overlap)
+    return chunks
+
 async def create_or_update_search_index():
     search_service_url = os.getenv("AZURE_SEARCH_SERVICE_URL")
 
@@ -67,17 +98,25 @@ async def create_or_update_search_index():
 
     current_app.logger.info(f"Using search service URL: {search_service_url}")
 
-    index_name = "pdf-index"
+    index_name = indexName
 
     # Use ManagedIdentityCredential with the client_id for user-assigned managed identities
     credential = ManagedIdentityCredential(client_id=os.getenv("AZURE_CLIENT_ID"))
 
     index_client = SearchIndexClient(endpoint=search_service_url, credential=credential)
 
+    # CHANGED: Added fields for filename and chunk_id to store references
     fields = [
         SimpleField(name="id", type=SearchFieldDataType.String, key=True),
+        SimpleField(name="filename", type=SearchFieldDataType.String),
+        SimpleField(name="chunk_id", type=SearchFieldDataType.String),
         SimpleField(name="content", type=SearchFieldDataType.String),
-        SearchableField(name="content_vector", type=SearchFieldDataType.Collection(SearchFieldDataType.Single), dimensions=1536, vector_search_configuration="vector-config")
+        SearchableField(
+            name="content_vector",
+            type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+            dimensions=1536,
+            vector_search_configuration="vector-config",
+        ),
     ]
 
     vector_search = VectorSearch(
@@ -111,29 +150,36 @@ async def index_pdf_content(file_name, file_content, bp, formrecognizercredentia
 
     current_app.logger.info(f"Using search service URL: {search_service_url}")
 
-    index_name = "pdf-indexx"
+    index_name = indexName
 
     # Use ManagedIdentityCredential with the client_id for user-assigned managed identities
     credential = formrecognizercredential
 
     search_client = SearchClient(endpoint=search_service_url, index_name=index_name, credential=credential)
-    text = file_content.replace("\n", " ")
-    # return text
-    response = await bp.openai_client.embeddings.create(input=text, model="text-embedding-ada-002")
-    # return type(response)
-    embeddings = response.data[0].embedding
-    # return embeddings
-    # req_info = info = await verify_index(search_client)
-    # req_info = {}
-    # req_info["embeddings length"] = len(embeddings)
-    # return req_info
-    document = {
-        "id": file_name.split(".")[0],
-        "content": file_content,
-        "content_vector": embeddings
-    }
+    # CHANGED: Chunk the PDF text
+    chunks = chunk_text(file_content.replace("\n", " "))
+    for i, chunk in enumerate(chunks):
+        current_app.logger.error("chunk text:",chunk[:20])
+        embed_response = await bp.openai_client.embeddings.create(
+            input=chunk,
+            model="text-embedding-ada-002"
+        )
+        embeddings = embed_response.data[0].embedding
+        # current_app.logger.error("embedding text:",embeddings[:20])
 
-    await search_client.upload_documents(documents=[document])
+        # CHANGED: Convert embeddings to bytes before base64 encoding
+        # embeddings_bytes = bytes(embeddings)
+        # embeddings_base64 = base64.b64encode(embeddings_bytes).decode('utf-8')
+        # CHANGED: Store references to filename and chunk_id
+        doc_id = f"{file_name.split('.')[0]}chunk{i}"
+        document = {
+            "id": doc_id,
+            "filename": file_name,
+            "chunk_id": str(i),
+            "content": chunk,
+            "content_vector": embeddings
+        }
+        await search_client.upload_documents(documents=[document])
 
 
 
@@ -174,7 +220,7 @@ async def process_pdf_upload(file, bp, formrecognizercredential):
 
         # Extract text from PDF using Form Recognizer
         extracted_text = await extract_text_from_pdf(blob_url, formrecognizercredential)
-
+        current_app.logger.error("extracted text:",extracted_text[:20])
         # Index the PDF content
         await index_pdf_content(file.filename, extracted_text, bp, formrecognizercredential)
         return {"message": "File uploaded successfully", "blob_url": blob_url}, 200
