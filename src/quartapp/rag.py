@@ -1,9 +1,8 @@
 import os
-import openai
 from azure.identity import DefaultAzureCredential
-import asyncio
 from azure.identity.aio import ManagedIdentityCredential
 from azure.search.documents.indexes.aio import SearchIndexClient
+from azure.search.documents.models import VectorizedQuery
 from azure.search.documents.indexes.models import (
     SearchIndex,
     SimpleField,
@@ -13,12 +12,11 @@ from azure.search.documents.indexes.models import (
     SearchableField,
 )
 from azure.search.documents.aio import SearchClient
-from azure.ai.formrecognizer.aio import DocumentAnalysisClient
 from azure.identity.aio import ManagedIdentityCredential
 import base64
 
 from azure.ai.documentintelligence import DocumentIntelligenceClient
-from azure.ai.documentintelligence.models import AnalyzeResult
+# from azure.ai.documentintelligence.models import AnalyzeResult
 from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
 from quart import current_app
 
@@ -56,8 +54,39 @@ credential = DefaultAzureCredential()
 # Get the token
 token = credential.get_token("https://cognitiveservices.azure.com/.default")
 
-# Instantiate the OpenAI client
-# textembedingclient = openai.OpenAI(api_key=token.token, api_base='https://wojh5fksuhjjs-cog.openai.azure.com/', api_version= '2024-02-15-preview')
+
+async def retrieve_context(question: str,  bp):
+    search_service_url = os.getenv("AZURE_SEARCH_SERVICE_URL")
+
+    if not search_service_url:
+        current_app.logger.error("AZURE_SEARCH_SERVICE_URL is not set.")
+        raise ValueError("AZURE_SEARCH_SERVICE_URL is not set.")
+
+    current_app.logger.info(f"Using search service URL: {search_service_url}")
+
+    # Convert the question to a vector using OpenAI's embeddings API
+
+    embed_response = await bp.openai_client.embeddings.create(
+        input=question,
+        model="text-embedding-ada-002"
+    )
+    question_vector = embed_response.data[0].embedding
+
+
+    search_client = bp.search_client
+    vector_query = VectorizedQuery(
+    vector=question_vector,  # Example vector
+    k_nearest_neighbors=2,  # Number of results to return
+    kind="vector",
+    fields="content_vector"
+    )
+
+    results = await search_client.search(search_text="*", vector_queries=[vector_query], top=3, 
+                                 select=["content"])
+    docs = []
+    async for result in results:
+        docs.append(result["content"])
+    return "\n".join(docs)
 
 async def verify_index(search_client):
 
@@ -143,6 +172,7 @@ async def create_or_update_search_index():
 
 async def index_pdf_content(file_name, file_content, bp, formrecognizercredential):
     search_service_url = os.getenv("AZURE_SEARCH_SERVICE_URL")
+    file_name = file_name.replace(" ", "_")
 
     if not search_service_url:
         current_app.logger.error("AZURE_SEARCH_SERVICE_URL is not set.")
@@ -165,12 +195,6 @@ async def index_pdf_content(file_name, file_content, bp, formrecognizercredentia
             model="text-embedding-ada-002"
         )
         embeddings = embed_response.data[0].embedding
-        # current_app.logger.error("embedding text:",embeddings[:20])
-
-        # CHANGED: Convert embeddings to bytes before base64 encoding
-        # embeddings_bytes = bytes(embeddings)
-        # embeddings_base64 = base64.b64encode(embeddings_bytes).decode('utf-8')
-        # CHANGED: Store references to filename and chunk_id
         doc_id = f"{file_name.split('.')[0]}chunk{i}"
         document = {
             "id": doc_id,
@@ -180,20 +204,6 @@ async def index_pdf_content(file_name, file_content, bp, formrecognizercredentia
             "content_vector": embeddings
         }
         await search_client.upload_documents(documents=[document])
-
-
-
-#     async with document_analysis_client:
-#         poller = await document_analysis_client.begin_analyze_document("prebuilt-document", AnalyzeDocumentRequest(url_source=blob_url ))
-#         result = await poller.result()
-
-#     extracted_text = ""
-#     for page in result.pages:
-#         for line in page.lines:
-#             extracted_text += line.content + "\n"
-
-#     return extracted_text
-
 
 async def process_pdf_upload(file, bp, formrecognizercredential):
     blob_service_client = bp.blob_service_client
@@ -213,7 +223,6 @@ async def process_pdf_upload(file, bp, formrecognizercredential):
             expiry=datetime.utcnow() + timedelta(hours=1)
         )
 
-        # blob_url = 'https://wojh5fksuhjjsx.blob.core.windows.net/pdf-uploads/lafit.pdf?sp=r&st=2025-01-24T00:02:40Z&se=2025-01-24T08:02:40Z&spr=https&sv=2022-11-02&sr=b&sig=GOB%2Fkx5kAeyHd%2BWEiJkwMAjTnnKJH2H7GTDt1oBRGTw%3D'
         # Append the SAS token to the blob URL
         blob_url = f"{blob_client.url}?{sas_token}"
         current_app.logger.info(f"Blob URL: {blob_url}")  # Print the blob URL for debugging
@@ -227,43 +236,12 @@ async def process_pdf_upload(file, bp, formrecognizercredential):
     except Exception as e:
         current_app.logger.error(f"Error uploading file: {e}")
         return {"error": str(e)}, 500
-    
-
-# async def process_pdf_upload(file, bp, formrecognizercredential):
-#     blob_service_client = bp.blob_service_client
-#     container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME")
-
-#     try:
-#         blob_client = blob_service_client.get_blob_client(container=container_name, blob=file.filename)
-#         await blob_client.upload_blob(file.stream, overwrite=True)
-
-#         # Get the URL of the uploaded blob
-#         blob_url = 'https://wojh5fksuhjjsx.blob.core.windows.net/pdf-uploads/lafi.pdf?sp=r&st=2025-01-24T08:11:31Z&se=2025-01-26T16:11:31Z&sv=2022-11-02&sr=b&sig=jOKHOmFm%2BSzdVvOetFfYs7VwZROtTrmShB1hIewIlU8%3D'
-#         # blob_url = blob_client.url
-#         current_app.logger.info(f"Blob URL: {blob_url}")  # Print the blob URL for debugging
-
-#         # Extract text from PDF using Form Recognizer
-#         extracted_text =  await extract_text_from_pdf( blob_url, formrecognizercredential)
-
-#         # Index the PDF content
-#         res = await index_pdf_content(file_name = file.filename, file_content=extracted_text, bp = bp, formrecognizercredential=formrecognizercredential)
-
-#         # Return the URL of the uploaded blob
-#         return {"message": "File uploaded successfully", "blob_url": res}, 200
-#     except Exception as e:
-#         current_app.logger.error(f"Error uploading file: {e}")
-#         return {"error": str(e)}, 500
 
 
 
 async def extract_text_from_pdf( blob_url, formrecognizercredential):
-    # sample document
-    
     form_recognizer_endpoint = os.getenv("FORM_RECOGNIZER_ENDPOINT")
-    # document_intelligence_client = DocumentIntelligenceClient(endpoint=form_recognizer_endpoint, credential=credentials)
-
-    credential = formrecognizercredential
-    document_analysis_client = DocumentIntelligenceClient(endpoint=form_recognizer_endpoint, credential=credential)
+    document_analysis_client = DocumentIntelligenceClient(endpoint=form_recognizer_endpoint, credential=formrecognizercredential)
 
     poller =  document_analysis_client.begin_analyze_document(
         "prebuilt-invoice", AnalyzeDocumentRequest(url_source=blob_url)
@@ -274,21 +252,3 @@ async def extract_text_from_pdf( blob_url, formrecognizercredential):
         for line in page.lines:
             extracted_text += line.content + "\n"
     return extracted_text
-
-
-# def analyze_invoice(credentials):
-#     # sample document
-#     invoice_url = "https://raw.githubusercontent.com/Azure-Samples/cognitive-services-REST-api-samples/master/curl/form-recognizer/sample-invoice.pdf"
-    
-#     form_recognizer_endpoint = os.getenv("FORM_RECOGNIZER_ENDPOINT")
-#     document_intelligence_client = DocumentIntelligenceClient(endpoint=form_recognizer_endpoint, credential=credentials)
-
-#     poller = document_intelligence_client.begin_analyze_document(
-#         "prebuilt-invoice", AnalyzeDocumentRequest(url_source=invoice_url)
-#     )
-#     result = poller.result()
-#     extracted_text = ""
-#     for page in result.pages:
-#         for line in page.lines:
-#             extracted_text += line.content + "\n"
-#     return extracted_text

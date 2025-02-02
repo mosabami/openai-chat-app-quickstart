@@ -21,7 +21,7 @@ from quart import (
     stream_with_context,
 )
 
-from quartapp.rag import create_or_update_search_index, process_pdf_upload
+from quartapp.rag import create_or_update_search_index, process_pdf_upload, retrieve_context
 
 bp = Blueprint("chat", __name__, template_folder="templates", static_folder="static")
 
@@ -101,19 +101,37 @@ async def shutdown_openai():
 async def index():
     return await render_template("index.html")
 
+
+# @bp.post("/chat")
+# async def chat():
+#     azuresearchcredential = SyncManIdent(client_id=os.getenv("AZURE_CLIENT_ID"))
+#     request_messages = (await request.get_json())["messages"]
+#     user_question = request_messages[-1]["content"]
+
+#     # Retrieve context from Azure Search
+#     context = await retrieve_context(user_question, azuresearchcredential, bp)
+#     return Response(json.dumps(context), status=200)
+
 @bp.post("/chat/stream")
 async def chat_handler():
+
     request_messages = (await request.get_json())["messages"]
+    user_question = request_messages[-1]["content"]
+    azuresearchcredential = SyncManIdent(client_id=os.getenv("AZURE_CLIENT_ID"))
+    # Retrieve context from Azure Search
+    context = await retrieve_context(user_question, bp)
+
+    if not context:
+        return Response(json.dumps({"error": "No relevant data found in the search index."}), status=400)
 
     @stream_with_context
     async def response_stream():
-        # This sends all messages, so API request may exceed token limits
         all_messages = [
-            {"role": "system", "content": "You are a helpful assistant."},
-        ] + request_messages
+            {"role": "system", "content": "Use the context below to answer the user's question."},
+            {"role": "user", "content": f"Context: {context}\n\nQuestion: {user_question}"}
+        ]
 
         chat_coroutine = bp.openai_client.chat.completions.create(
-            # Azure Open AI takes the deployment name as the model name
             model=bp.openai_model,
             messages=all_messages,
             stream=True,
