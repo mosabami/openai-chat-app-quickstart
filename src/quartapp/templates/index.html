@@ -72,6 +72,9 @@
                         Drag and drop your PDF here or click to select
                     </div>
                     <input type="file" id="file-input" class="d-none" accept="application/pdf">
+                    <div class="mt-3">
+                        <input type="password" id="upload-password" class="form-control" placeholder="Enter password">
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -183,13 +186,18 @@
 
         uploadFileButton.addEventListener("click", async () => {
             const file = fileInput.files[0];
+            const password = document.getElementById("upload-password").value;
             if (!file) {
                 alert("Please select a file first.");
                 return;
             }
-
+            if (!password) {
+            alert("Please enter a password.");
+            return;
+            }
             const formData = new FormData();
             formData.append("file", file);
+            formData.append("password", password);
 
             try {
                 const response = await fetch("/upload", {
@@ -200,7 +208,8 @@
                 if (response.ok) {
                     alert("File uploaded successfully!");
                 } else {
-                    alert("Failed to upload file.");
+                    const errorData = await response.json();
+                    alert("Failed to upload file: " + errorData.error);
                 }
             } catch (error) {
                 alert("Error: " + error);

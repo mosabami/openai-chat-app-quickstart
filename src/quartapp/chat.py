@@ -32,6 +32,12 @@ if indexName:
 else:
     indexName = "inddd"
 
+fileUploadPassword = os.getenv("FILE_UPLOAD_PASSWORD")
+if fileUploadPassword:
+    current_app.logger.info("Using fileUploadPassword: %s", fileUploadPassword)
+else:
+    fileUploadPassword = "P@ssword"
+
 @bp.before_app_serving
 async def configure_openai():
     # Use ManagedIdentityCredential with the client_id for user-assigned managed identities
@@ -154,14 +160,20 @@ async def upload_file():
         return {"error": "File upload is disabled. Missing Azure Storage account configuration."}, 500
 
     files = await request.files
-    if "file" not in files:
-        current_app.logger.error("No file part in the request.")
-        return {"error": "No file part"}, 400
+    form_data = await request.form
+    if "file" not in files or "password" not in form_data:
+        current_app.logger.error("No file part or password in the request.")
+        return {"error": "No file part or password"}, 400
 
     file = files["file"]
+    password = form_data["password"]
     if file.filename == "":
         current_app.logger.error("No selected file.")
         return {"error": "No selected file"}, 400
+    
+    if password != fileUploadPassword:
+        current_app.logger.error("Invalid password.")
+        return {"error": "Invalid password"}, 403
 
     try:
         formrecognizercredential = SyncManIdent(client_id=os.getenv("AZURE_CLIENT_ID"))
