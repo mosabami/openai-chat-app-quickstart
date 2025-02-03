@@ -23,6 +23,16 @@ from quart import (
 
 from quartapp.rag import create_or_update_search_index, process_pdf_upload, retrieve_context
 
+import time
+
+rate_limit_counter = {
+    "count": 0,
+    "start": time.time()
+}
+
+rate_limit = 120
+rate_limit_response_message = "Sorry i have reached my rate limit, try again in an hour"
+
 bp = Blueprint("chat", __name__, template_folder="templates", static_folder="static")
 
 indexName = os.getenv("AZURE_SEARCH_INDEX_NAME")
@@ -115,37 +125,50 @@ async def index():
     return await render_template("index.html")
 
 
-@bp.post("/chat")
-async def chat():
-    azuresearchcredential = SyncManIdent(client_id=os.getenv("AZURE_CLIENT_ID"))
-    request_messages = (await request.get_json())["messages"]
-    user_question = request_messages[-1]["content"]
+# @bp.post("/chat")
+# async def chat():
+#     azuresearchcredential = SyncManIdent(client_id=os.getenv("AZURE_CLIENT_ID"))
+#     request_messages = (await request.get_json())["messages"]
+#     user_question = request_messages[-1]["content"]
 
-    # Retrieve context from Azure Search
-    # return Response(json.dumps(user_question), status=200)
-    retrieved_data = await retrieve_context(user_question,  bp)
-    context = "\n".join([item.get("content", "") for item in retrieved_data if item.get("content")])
-    references = [ ]
-    doc_copy = [ ]
-    for item in retrieved_data:
-        if item.get("filename"):
-            filename = item.get("filename")
-            if filename in doc_copy:
-                continue
-            doc_copy.append(filename)
-            doc_url = item.get("doc_url")
-            reference = f"[{filename}]({doc_url})"
-            references.append(reference)
-    if references:
-        references_text = f"**References:**\n" + "\n".join(references)
-        return Response(json.dumps(references_text), status=200)
-    else:
-        return Response(json.dumps({"error": "I'm sorry, I can only answer questions related to the topics this app was built for."}), status=400)
+#     # Retrieve context from Azure Search
+#     # return Response(json.dumps(user_question), status=200)
+#     retrieved_data = await retrieve_context(user_question,  bp)
+#     context = "\n".join([item.get("content", "") for item in retrieved_data if item.get("content")])
+#     references = [ ]
+#     doc_copy = [ ]
+#     for item in retrieved_data:
+#         if item.get("filename"):
+#             filename = item.get("filename")
+#             if filename in doc_copy:
+#                 continue
+#             doc_copy.append(filename)
+#             doc_url = item.get("doc_url")
+#             reference = f"[{filename}]({doc_url})"
+#             references.append(reference)
+#     if references:
+#         references_text = f"**References:**\n" + "\n".join(references)
+#         return Response(json.dumps(references_text), status=200)
+#     else:
+#         return Response(json.dumps({"error": "I'm sorry, I can only answer questions related to the topics this app was built for."}), status=400)
     
-    return Response(json.dumps(context), status=200)
+#     return Response(json.dumps(context), status=200)
 
 @bp.post("/chat/stream")
 async def chat_handler():
+    global rate_limit_counter
+    current = time.time()
+    if current - rate_limit_counter["start"] > 3600:
+        # Reset after an hour
+        rate_limit_counter = {"count": 0, "start": current}
+    if rate_limit_counter["count"] > rate_limit:
+        @stream_with_context
+        async def ratelimit_response_stream():
+            yield json.dumps(return_good_delta(rate_limit_response_message), ensure_ascii=False) + "\n"
+        return Response(ratelimit_response_stream())
+
+        # return Response( json.dumps(return_good_delta(rate_limit_response_message), ensure_ascii=False) , status=429)
+    rate_limit_counter["count"] += 1
 
     request_messages = (await request.get_json())["messages"]
     user_question = request_messages[-1]["content"]
