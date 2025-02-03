@@ -35,19 +35,6 @@ rate_limit_response_message = "Sorry i have reached my rate limit, try again in 
 
 bp = Blueprint("chat", __name__, template_folder="templates", static_folder="static")
 
-indexName = os.getenv("AZURE_SEARCH_INDEX_NAME")
-
-if indexName:
-    current_app.logger.info("Using Azure Search index: %s", indexName)
-else:
-    indexName = "inddd"
-
-fileUploadPassword = os.getenv("FILE_UPLOAD_PASSWORD")
-if fileUploadPassword:
-    current_app.logger.info("Using fileUploadPassword: %s", fileUploadPassword)
-else:
-    fileUploadPassword = "P@ssword"
-
 def return_good_delta(delta):
     text = "\n" + delta
     return {"delta": {"content": text, "function_call": None, "refusal": None, "role": None, "tool_calls": None}, 
@@ -57,6 +44,20 @@ def return_good_delta(delta):
 
 @bp.before_app_serving
 async def configure_openai():
+    indexName = os.getenv("AZURE_SEARCH_INDEX_NAME")
+
+    if indexName:
+        current_app.logger.info("Using Azure Search index: %s", indexName)
+    else:
+        indexName = "pdf-index"
+    bp.indexName = indexName
+
+    fileUploadPassword = os.getenv("FILE_UPLOAD_PASSWORD")
+    if fileUploadPassword:
+        current_app.logger.info(f"Using fileUploadPassword: {fileUploadPassword}")
+    else:
+        fileUploadPassword = "P@ssword"
+    bp.fileUploadPassword = fileUploadPassword
     # Use ManagedIdentityCredential with the client_id for user-assigned managed identities
     user_assigned_managed_identity_credential = ManagedIdentityCredential(client_id=os.getenv("AZURE_CLIENT_ID"))
 
@@ -124,36 +125,6 @@ async def shutdown_openai():
 async def index():
     return await render_template("index.html")
 
-
-# @bp.post("/chat")
-# async def chat():
-#     azuresearchcredential = SyncManIdent(client_id=os.getenv("AZURE_CLIENT_ID"))
-#     request_messages = (await request.get_json())["messages"]
-#     user_question = request_messages[-1]["content"]
-
-#     # Retrieve context from Azure Search
-#     # return Response(json.dumps(user_question), status=200)
-#     retrieved_data = await retrieve_context(user_question,  bp)
-#     context = "\n".join([item.get("content", "") for item in retrieved_data if item.get("content")])
-#     references = [ ]
-#     doc_copy = [ ]
-#     for item in retrieved_data:
-#         if item.get("filename"):
-#             filename = item.get("filename")
-#             if filename in doc_copy:
-#                 continue
-#             doc_copy.append(filename)
-#             doc_url = item.get("doc_url")
-#             reference = f"[{filename}]({doc_url})"
-#             references.append(reference)
-#     if references:
-#         references_text = f"**References:**\n" + "\n".join(references)
-#         return Response(json.dumps(references_text), status=200)
-#     else:
-#         return Response(json.dumps({"error": "I'm sorry, I can only answer questions related to the topics this app was built for."}), status=400)
-    
-#     return Response(json.dumps(context), status=200)
-
 @bp.post("/chat/stream")
 async def chat_handler():
     global rate_limit_counter
@@ -195,7 +166,7 @@ async def chat_handler():
     @stream_with_context
     async def response_stream():
         all_messages = [
-            {"role": "system", "content": "Use the context below to answer the user's question."},
+            {"role": "system", "content": "Use the context below to answer the user's question. You must only provide information that is based on information in the context provided, not your general knowledge."},
             {"role": "user", "content": f"Context: {context}\n\nQuestion: {user_question}"}
         ]
 
@@ -210,7 +181,7 @@ async def chat_handler():
                 if event_dict["choices"]:
                     yield json.dumps(event_dict["choices"][0], ensure_ascii=False) + "\n"
             if references:
-                references_text = f"\n**References:**\n" + "\n".join(references)
+                references_text = f"\n**References:**\n" + ", ".join(references)
                 # yield json.dumps(return_good_delta("\n"), ensure_ascii=False) 
                 yield json.dumps(return_good_delta(references_text), ensure_ascii=False) + "\n"
 
@@ -238,17 +209,17 @@ async def upload_file():
     password = form_data["password"]
     if file.filename == "":
         current_app.logger.error("No selected file.")
-        return {"error": "No selected file"}, 400
+        return Response(json.dumps({"error": "No selected file"}), status=400, content_type="application/json")
     
-    if password != fileUploadPassword:
+    if password != bp.fileUploadPassword:
         current_app.logger.error("Invalid password.")
-        return {"error": "Invalid password"}, 403
+        return Response(json.dumps({"error": "Invalid password"}), status=403, content_type="application/json")
 
     try:
         formrecognizercredential = SyncManIdent(client_id=os.getenv("AZURE_CLIENT_ID"))
         result =  await process_pdf_upload(file, bp, formrecognizercredential)
         # result =  process_pdf_upload(file, bp)
-        return result
+        return Response(json.dumps(result), status=200, content_type="application/json")
     except Exception as e:
         current_app.logger.error(f"Error uploading file: {e}")
-        return {"error": str(e)}, 500
+        return Response(json.dumps({"error": str(e)}), status=500, content_type="application/json")

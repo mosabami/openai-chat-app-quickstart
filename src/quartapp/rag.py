@@ -16,12 +16,11 @@ from azure.identity.aio import ManagedIdentityCredential
 import base64
 
 from azure.ai.documentintelligence import DocumentIntelligenceClient
-# from azure.ai.documentintelligence.models import AnalyzeResult
 from azure.ai.documentintelligence.models import AnalyzeDocumentRequest
 from quart import current_app
 
 from datetime import datetime, timedelta
-from azure.storage.blob import BlobServiceClient, generate_blob_sas, BlobSasPermissions
+from azure.storage.blob import  generate_blob_sas, BlobSasPermissions
 
 # Create a credential object
 credential = DefaultAzureCredential()
@@ -31,7 +30,7 @@ indexName = os.getenv("AZURE_SEARCH_INDEX_NAME")
 if indexName:
     current_app.logger.info("Using Azure Search index: %s", indexName)
 else:
-    indexName = "inddd"
+    indexName = "pdf-index"
 
 
 try:
@@ -80,14 +79,14 @@ async def retrieve_context(question: str,  bp):
     search_client = bp.search_client
     vector_query = VectorizedQuery(
     vector=question_vector,  # Example vector
-    k_nearest_neighbors=2,  # Number of results to return
+    k_nearest_neighbors=5,  # Number of results to return
     kind="vector",
     fields="content_vector"
     )
 
-    results = await search_client.search(search_text="*", vector_queries=[vector_query], top=3, 
+    results = await search_client.search(search_text="*", vector_queries=[vector_query], top=5, 
                                  select=["content", "filename", "chunk_id"])
-    score_threshold = 0.8
+    score_threshold = 0.80
     docs = []
     async for result in results:
         content = result["content"]
@@ -98,28 +97,23 @@ async def retrieve_context(question: str,  bp):
         filename = result["filename"]
 
         try:
-            # blob_client = blob_service_client.get_blob_client(container=container_name, blob=filename)
-            # account_name = blob_client.account_name
-            # account_name = "wojh5fksuhjjs"
-            blob_client = blob_service_client.get_blob_client(container=container_name, blob=filename)
+            actual_filename = filename.replace("_", " ")
+            blob_client = blob_service_client.get_blob_client(container=container_name, blob=actual_filename)
 
 
             # Generate SAS URL for the file
             sas_token = generate_blob_sas(
                 account_name=blob_client.account_name,
                 container_name=container_name,
-                blob_name=filename,
+                blob_name=actual_filename,
                 account_key=account_key,
                 permission=BlobSasPermissions(read=True),
-                expiry=datetime.utcnow() + timedelta(hours=1)
+                expiry=datetime.utcnow() + timedelta(minutes=10)
             )
 
-            # sas_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{filename}?{sas_token}"
             sas_url = f"{blob_client.url}?{sas_token}"
             # docs.append({"content": content, "reference": sas_url})
-            docs.append({"content": content, "doc_url": sas_url, "filename":filename})
-            # docs.append({"content": content, "account_name": "account_name",container_name:"container_name", "filename":filename,"sas_token":sas_token})
-            # docs.append(f"{content}\nReference: [Document]({sas_url})")
+            docs.append({"content": content, "doc_url": sas_url, "filename":actual_filename})
         except Exception as e:
             current_app.logger.error(f"Error uploading file: {e}")
             return {"error": str(e)}, 500
