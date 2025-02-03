@@ -57,6 +57,10 @@ token = credential.get_token("https://cognitiveservices.azure.com/.default")
 
 async def retrieve_context(question: str,  bp):
     search_service_url = os.getenv("AZURE_SEARCH_SERVICE_URL")
+    blob_service_client = bp.blob_service_client
+    container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME")
+    account_key = os.getenv("AZURE_STORAGE_ACCOUNT_KEY")
+    
 
     if not search_service_url:
         current_app.logger.error("AZURE_SEARCH_SERVICE_URL is not set.")
@@ -82,11 +86,45 @@ async def retrieve_context(question: str,  bp):
     )
 
     results = await search_client.search(search_text="*", vector_queries=[vector_query], top=3, 
-                                 select=["content"])
+                                 select=["content", "filename", "chunk_id"])
+    score_threshold = 0.8
     docs = []
     async for result in results:
-        docs.append(result["content"])
-    return "\n".join(docs)
+        content = result["content"]
+        score = result.get("@search.score", 0)
+        if score < score_threshold:
+            # Skip low-score results
+            continue
+        filename = result["filename"]
+
+        try:
+            # blob_client = blob_service_client.get_blob_client(container=container_name, blob=filename)
+            # account_name = blob_client.account_name
+            # account_name = "wojh5fksuhjjs"
+            blob_client = blob_service_client.get_blob_client(container=container_name, blob=filename)
+
+
+            # Generate SAS URL for the file
+            sas_token = generate_blob_sas(
+                account_name=blob_client.account_name,
+                container_name=container_name,
+                blob_name=filename,
+                account_key=account_key,
+                permission=BlobSasPermissions(read=True),
+                expiry=datetime.utcnow() + timedelta(hours=1)
+            )
+
+            # sas_url = f"https://{account_name}.blob.core.windows.net/{container_name}/{filename}?{sas_token}"
+            sas_url = f"{blob_client.url}?{sas_token}"
+            # docs.append({"content": content, "reference": sas_url})
+            docs.append({"content": content, "doc_url": sas_url, "filename":filename})
+            # docs.append({"content": content, "account_name": "account_name",container_name:"container_name", "filename":filename,"sas_token":sas_token})
+            # docs.append(f"{content}\nReference: [Document]({sas_url})")
+        except Exception as e:
+            current_app.logger.error(f"Error uploading file: {e}")
+            return {"error": str(e)}, 500
+        
+    return docs
 
 async def verify_index(search_client):
 
