@@ -28,7 +28,7 @@ credential = DefaultAzureCredential()
 indexName = os.getenv("AZURE_SEARCH_INDEX_NAME")
 
 if indexName:
-    current_app.logger.info("Using Azure Search index: %s", indexName)
+    print(f"Using Azure Search index: {indexName}" )
 else:
     indexName = "pdf-index"
 
@@ -37,15 +37,12 @@ try:
     chunkSize = int(os.getenv("AZURE_SEARCH_CHUNK_SIZE", "500").strip())
 except ValueError:
     chunkSize = 500
-    current_app.logger.warning("Invalid AZURE_SEARCH_CHUNK_SIZE value. Using default: 500")
+    print("Invalid AZURE_SEARCH_CHUNK_SIZE value. Using default: 500")
 try:
     Overlap = int(os.getenv("AZURE_SEARCH_CHUNK_SIZE_OVERLAP", "80").strip())
 except ValueError:
     Overlap = 80
-    current_app.logger.warning("Invalid AZURE_SEARCH_CHUNK_SIZE_OVERLAP value. Using default: 80")
-
-# Set your Azure OpenAI endpoint
-azure_openai_endpoint = "https://your-custom-endpoint.openai.azure.com/"
+    print("Invalid AZURE_SEARCH_CHUNK_SIZE_OVERLAP value. Using default: 80")
 
 # Create a credential object
 credential = DefaultAzureCredential()
