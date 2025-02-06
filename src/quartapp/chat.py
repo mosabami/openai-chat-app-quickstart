@@ -30,7 +30,7 @@ rate_limit_counter = {
     "start": time.time()
 }
 
-rate_limit = 120
+rate_limit = 150
 rate_limit_response_message = "Sorry i have reached my rate limit, try again in an hour"
 
 bp = Blueprint("chat", __name__, template_folder="templates", static_folder="static")

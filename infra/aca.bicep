@@ -66,6 +66,22 @@ var env = [
     name: 'FORM_RECOGNIZER_ENDPOINT'  // Add this block
     value: formRecognizerEndpoint
   }
+  {
+    name: 'AZURE_SEARCH_CHUNK_SIZE'
+    value: 1000
+  }
+  {
+    name: 'AZURE_SEARCH_CHUNK_SIZE_OVERLAP'  // Add this block
+    value: 160
+  }
+  {
+    name: 'AZURE_SEARCH_INDEX_NAME'  // Add this block
+    value: 'pdf-index'
+  }
+  {
+    name: 'FILE_UPLOAD_PASSWORD'  // Add this block
+    value: 'P@ssword'
+  }
 ]
 
 module app 'core/host/container-app-upsert.bicep' = {
