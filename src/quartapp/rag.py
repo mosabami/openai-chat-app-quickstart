@@ -8,8 +8,10 @@ from azure.search.documents.indexes.models import (
     SimpleField,
     SearchFieldDataType,
     VectorSearch,
-    VectorSearchAlgorithmConfiguration,
+    VectorSearchProfile,
+    HnswAlgorithmConfiguration,
     SearchableField,
+    SearchField,
 )
 from azure.search.documents.aio import SearchClient
 from azure.identity.aio import ManagedIdentityCredential
@@ -25,12 +27,18 @@ from azure.storage.blob import  generate_blob_sas, BlobSasPermissions
 # Create a credential object
 credential = DefaultAzureCredential()
 
+if not os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"):
+    raise ValueError("AZURE_OPENAI_EMBEDDING_DEPLOYMENT is required for Azure OpenAI")
+else: 
+    openai_embedding_model = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT")
+
 indexName = os.getenv("AZURE_SEARCH_INDEX_NAME")
 
 if indexName:
     print(f"Using Azure Search index: {indexName}" )
 else:
     indexName = "pdf-index"
+
 
 
 try:
@@ -65,17 +73,16 @@ async def retrieve_context(question: str,  bp):
     current_app.logger.info(f"Using search service URL: {search_service_url}")
 
     # Convert the question to a vector using OpenAI's embeddings API
-
     embed_response = await bp.openai_client.embeddings.create(
         input=question,
-        model="text-embedding-ada-002"
+        model=openai_embedding_model
     )
     question_vector = embed_response.data[0].embedding
 
 
     search_client = bp.search_client
     vector_query = VectorizedQuery(
-    vector=question_vector,  # Example vector
+    vector=question_vector,  # The vector representation of the question
     k_nearest_neighbors=5,  # Number of results to return
     kind="vector",
     fields="content_vector"
@@ -97,7 +104,6 @@ async def retrieve_context(question: str,  bp):
             actual_filename = filename.replace("_", " ")
             blob_client = blob_service_client.get_blob_client(container=container_name, blob=actual_filename)
 
-
             # Generate SAS URL for the file
             sas_token = generate_blob_sas(
                 account_name=blob_client.account_name,
@@ -109,7 +115,6 @@ async def retrieve_context(question: str,  bp):
             )
 
             sas_url = f"{blob_client.url}?{sas_token}"
-            # docs.append({"content": content, "reference": sas_url})
             docs.append({"content": content, "doc_url": sas_url, "filename":actual_filename})
         except Exception as e:
             current_app.logger.error(f"Error uploading file: {e}")
@@ -125,16 +130,12 @@ async def verify_index(search_client):
     info = {}
     for field in index.fields:
         if field.name == "content_vector":
-            # print("Field name:", field.name)
             info["Field name"] = field.name
-            # print("Type:", field.type)
             info["Type"] = field.type
-            # print("Dimensions:", getattr(field, "dimensions", None))
             info["Dimensions"] = getattr(field, "dimensions", None)
         break
     return info
 
-# CHANGED: Helper function to chunk text
 def chunk_text(text, chunk_size=chunkSize, overlap=Overlap):
     """Split text into chunks of length `chunk_size`, with overlapping of `overlap` chars."""
     chunks = []
@@ -162,29 +163,26 @@ async def create_or_update_search_index():
     credential = ManagedIdentityCredential(client_id=os.getenv("AZURE_CLIENT_ID"))
 
     index_client = SearchIndexClient(endpoint=search_service_url, credential=credential)
-
-    # CHANGED: Added fields for filename and chunk_id to store references
     fields = [
         SimpleField(name="id", type=SearchFieldDataType.String, key=True),
-        SimpleField(name="filename", type=SearchFieldDataType.String),
+        SearchableField(name="filename", type=SearchFieldDataType.String),
         SimpleField(name="chunk_id", type=SearchFieldDataType.String),
-        SimpleField(name="content", type=SearchFieldDataType.String),
-        SearchableField(
+        SearchableField(name="content", type=SearchFieldDataType.String),
+        SearchField(
             name="content_vector",
             type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
-            dimensions=1536,
-            vector_search_configuration="vector-config",
-        ),
+            searchable=True,
+            vector_search_dimensions=1536,
+            vector_search_profile_name="vector-config",
+        )
     ]
 
     vector_search = VectorSearch(
-        algorithm_configurations=[
-            VectorSearchAlgorithmConfiguration(
-                name="vector-config",
-                kind="hnsw"
-            )
-        ]
+        profiles=[VectorSearchProfile(name="vector-config", algorithm_configuration_name="algorithms-config")],
+        algorithms=[HnswAlgorithmConfiguration(name="algorithms-config")],
     )
+    # Define the vector field and index
+
 
     index = SearchIndex(name=index_name, fields=fields, vector_search=vector_search)
 
@@ -215,13 +213,12 @@ async def index_pdf_content(file_name, file_content, bp, formrecognizercredentia
     credential = formrecognizercredential
 
     search_client = SearchClient(endpoint=search_service_url, index_name=index_name, credential=credential)
-    # CHANGED: Chunk the PDF text
     chunks = chunk_text(file_content.replace("\n", " "))
     for i, chunk in enumerate(chunks):
         current_app.logger.error("chunk text:",chunk[:20])
         embed_response = await bp.openai_client.embeddings.create(
-            input=chunk,
-            model="text-embedding-ada-002"
+            input=[chunk],
+            model=openai_embedding_model
         )
         embeddings = embed_response.data[0].embedding
         doc_id = f"{file_name.split('.')[0]}chunk{i}"

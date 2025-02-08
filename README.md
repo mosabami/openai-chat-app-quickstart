@@ -3,7 +3,7 @@
 [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/Azure-Samples/openai-chat-app-quickstart)
 [![Open in Dev Containers](https://img.shields.io/static/v1?style=for-the-badge&label=Dev%20Containers&message=Open&color=blue&logo=visualstudiocode)](https://vscode.dev/redirect?url=vscode://ms-vscode-remote.remote-containers/cloneInVolume?url=https://github.com/azure-samples/openai-chat-app-quickstart)
 
-This repository includes a Python app that uses Azure OpenAI to generate responses to user messages.
+This repository includes a Python app that uses Azure OpenAI to generate responses to user messages. It was updated from the original project to leverage RAG. 
 
 The project includes all the infrastructure and configuration needed to provision Azure OpenAI resources and deploy the app to [Azure Container Apps](https://learn.microsoft.com/azure/container-apps/overview) using the [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/overview). By default, the app will use managed identity to authenticate with Azure OpenAI.
 
@@ -27,13 +27,18 @@ since the local app needs credentials for Azure OpenAI to work properly.
 
 * A Python [Quart](https://quart.palletsprojects.com/en/latest/) that uses the [openai](https://pypi.org/project/openai/) package to generate responses to user messages.
 * A basic HTML/JS frontend that streams responses from the backend using [JSON Lines](http://jsonlines.org/) over a [ReadableStream](https://developer.mozilla.org/en-US/docs/Web/API/ReadableStream).
-* [Bicep files](https://docs.microsoft.com/azure/azure-resource-manager/bicep/) for provisioning Azure resources, including Azure OpenAI, Azure Container Apps, Azure Container Registry, Azure Log Analytics, and RBAC roles.
+* [Bicep files](https://docs.microsoft.com/azure/azure-resource-manager/bicep/) for provisioning Azure resources, including Azure OpenAI, Azure Container Apps, Azure Container Registry, Azure Log Analytics, Azure Storage, Azure document intelligence, and RBAC roles.
 
-![Screenshot of the chat app](docs/screenshot_chatapp.png)
+![Screenshot of the chat app](docs/screenshot_chatapp-rag.png)
 
 ## Architecture diagram
 
+Below is the architecture of the original version of the app
 ![Architecture diagram: Azure Container Apps inside Container Apps Environment, connected to Container Registry with Container, connected to Managed Identity for Azure OpenAI](readme_diagram.png)
+
+Below is the updated architecture
+
+![new architecture that includes rag compoents](./docs/new-architecture.png)
 
 ## Getting started
 
@@ -131,6 +136,39 @@ Once you've opened the project in [Codespaces](#github-codespaces), in [Dev Cont
     ```shell
     azd deploy
     ```
+### Configure connection to Azure Search
+As of today, Azure search doesn't allow authentication option to be set to RBAC using Bicep so you will need to do that manually.
+
+1. Head on to the Azure portal and find the resource group you just created
+1. Find the **Search Service** instance in the resource group and open it
+1. In the left blade, click on **Keys** under **Settings**
+1. Under **API access control** click on the **Role-based access control** radio button to enable authentication with RBAC. Your Azure resources will now be able to connect to the instance using the Managed identity they configured to use.
+
+### Add the storage account Key as secret in Container Apps
+1. Head to the storage account within the resource group
+1. Click on **Access keys** under **Security + networking**
+1. Click on **Show** under **key1**
+1. Click on the **Copy to clipboard** button to copy the key
+1. Head to your Azure container app instance within the same resource group
+1. Click on **Secrets** under **Settings** in the left blade
+1. Click on **+ Add** in the resulting page
+1. Enter `storageaccountkey` as the key and paste the key you copied as the value
+1. Click on **Containers** under the **Application** section in the left blade
+1. Click on the **Edit and deploy** button
+1. Click on the **main** link under the Container image section which lists the containers running in the ACA instance
+1. In the **Properties** tab set the **Image** to the only option and **Image tag** also to the only option
+1. Click on the **Environment variables** tab 
+1. Update the `AZURE_STORAGE_ACCOUNT_KEY` variable setting the **Source** to **Reference a secret** and select `storageaccountkey` as the value
+1. Click **Save** at the bottom and **Create** at the bottom left
+1. Head back to the **Overview** tab of the ACA instance to get the URL of your container app then click on the application URL which should open it up on a  new tab
+
+### Test the app
+The app only answers questions related to the content of uploaded files. 
+1. Click on **Upload PDF** 
+1. Drag and drop any PDF file into the area provided
+1. Enter password `P@ssword`
+1. Click **Upload**. You should see File uploaded successfully after a few seconds
+1. Have a chat about the content of your file. It will only answer questions related to the content of uploaded files.
 
 ### Continuous deployment with GitHub Actions
 

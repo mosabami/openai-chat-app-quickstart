@@ -33,20 +33,16 @@ resource container 'Microsoft.Storage/storageAccounts/blobServices/containers@20
   name: 'pdf-uploads'
 }
 
-resource storageIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: '${name}-storage-identity'
-  location: location
-}
 
-resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(storageAccount.id, 'manual', 'StorageBlobDataContributor')
-  scope: storageAccount
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe') // Storage Blob Data Contributor
-    principalId: storageIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
+// resource storageRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+//   name: guid(storageAccount.id, 'manual', 'StorageBlobDataContributor')
+//   scope: storageAccount
+//   properties: {
+//     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'ba92f5b4-2d11-453d-a403-e96b0029c9fe') // Storage Blob Data Contributor
+//     principalId: sharedIdentityId
+//     principalType: 'ServicePrincipal'
+//   }
+// }
 
 output storageAccountName string = storageAccount.name
 output storageAccountUrl string = 'https://${storageAccount.name}.blob.core.windows.net'
