@@ -99,7 +99,7 @@ module formRecognizer 'core/ai/form-recognizer.bicep' = {
   name: 'form-recognizer'
   scope: resourceGroup
   params: {
-    name: '${prefix}-form-recognizer'
+    name: prefix
     location: location
     tags: tags
     sharedIdentityId: sharedidentity.outputs.resourceid
@@ -132,6 +132,18 @@ module openAi 'core/ai/cognitiveservices.bicep' = if (createAzureOpenAi) {
         sku: {
           name: openAiDeploymentSkuName
           capacity: openAiDeploymentCapacity
+        }
+      }
+      {
+        name: 'text-embedding-ada-002'
+        model: {
+          format: 'OpenAI'
+          name: 'text-embedding-ada-002'
+          version: '2'
+        }
+        sku: {
+          name: 'Standard'
+          capacity: 1
         }
       }
     ]
@@ -182,6 +194,7 @@ module searchService 'core/search/search-service.bicep' = {
     name: '${prefix}-search'
     location: location
     tags: tags
+    // identityName: sharedidentity.outputs.identityname
   }
 }
 
@@ -238,6 +251,16 @@ module searchRoleAssignment 'core/security/role.bicep' = {
   params: {
     principalId: sharedidentity.outputs.identityprincipalid
     roleDefinitionId: '7ca78c08-252a-4471-8644-bb5ff32d4ba0' // Search Service Contributor
+    principalType: 'ServicePrincipal'
+  }
+}
+
+module searchIndexAssignment 'core/security/role.bicep' = {
+  name: 'search-index-roles'
+  scope: resourceGroup
+  params: {
+    principalId: sharedidentity.outputs.identityprincipalid
+    roleDefinitionId: '8ebe5a00-799e-43f5-93ac-243d3dce84a7' // Search Service Contributor
     principalType: 'ServicePrincipal'
   }
 }

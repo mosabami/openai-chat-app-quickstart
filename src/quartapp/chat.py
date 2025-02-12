@@ -138,7 +138,6 @@ async def chat_handler():
             yield json.dumps(return_good_delta(rate_limit_response_message), ensure_ascii=False) + "\n"
         return Response(ratelimit_response_stream())
 
-        # return Response( json.dumps(return_good_delta(rate_limit_response_message), ensure_ascii=False) , status=429)
     rate_limit_counter["count"] += 1
 
     request_messages = (await request.get_json())["messages"]
@@ -161,7 +160,6 @@ async def chat_handler():
 
     if not context:
         return Response(json.dumps({"error": "I'm sorry, I can only answer questions related to the topics this app was built for."}), status=400)
-    # return Response(json.dumps(retrieved_data), status=200) 
 
     @stream_with_context
     async def response_stream():
@@ -182,15 +180,11 @@ async def chat_handler():
                     yield json.dumps(event_dict["choices"][0], ensure_ascii=False) + "\n"
             if references:
                 references_text = f"\n**References:**\n" + ", ".join(references)
-                # yield json.dumps(return_good_delta("\n"), ensure_ascii=False) 
                 yield json.dumps(return_good_delta(references_text), ensure_ascii=False) + "\n"
 
         except Exception as e:
             current_app.logger.error(e)
             yield json.dumps({"error": str(e)}, ensure_ascii=False) + "\n"
-        # Append references at the end of the response
-
-
     return Response(response_stream())
 
 @bp.post("/upload")
@@ -218,7 +212,6 @@ async def upload_file():
     try:
         formrecognizercredential = SyncManIdent(client_id=os.getenv("AZURE_CLIENT_ID"))
         result =  await process_pdf_upload(file, bp, formrecognizercredential)
-        # result =  process_pdf_upload(file, bp)
         return Response(json.dumps(result), status=200, content_type="application/json")
     except Exception as e:
         current_app.logger.error(f"Error uploading file: {e}")

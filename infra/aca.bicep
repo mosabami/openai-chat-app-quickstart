@@ -68,11 +68,11 @@ var env = [
   }
   {
     name: 'AZURE_SEARCH_CHUNK_SIZE'
-    value: 1000
+    value: '1000'
   }
   {
     name: 'AZURE_SEARCH_CHUNK_SIZE_OVERLAP'  // Add this block
-    value: 160
+    value: '160'
   }
   {
     name: 'AZURE_SEARCH_INDEX_NAME'  // Add this block
@@ -81,6 +81,10 @@ var env = [
   {
     name: 'FILE_UPLOAD_PASSWORD'  // Add this block
     value: 'P@ssword'
+  }
+  {
+    name: 'AZURE_OPENAI_EMBEDDING_DEPLOYMENT'  // Add this block
+    value: 'text-embedding-ada-002'
   }
 ]
 
