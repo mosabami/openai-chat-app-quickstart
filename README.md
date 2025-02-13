@@ -180,6 +180,9 @@ to be stored as Github action secrets. To set that up, run:
 azd pipeline config
 ```
 
+### Test
+Try the prompts here: [Techconnect prompts](./techconnectlab/Prompts.md)
+
 ## Development server
 
 Assuming you've run the steps to [open the project](#getting-started) and the steps in [Deploying](#deploying), you can now run the Quart app in your development environment:
