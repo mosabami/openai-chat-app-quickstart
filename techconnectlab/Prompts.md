@@ -6,7 +6,7 @@
 
 
 # Add a new feature
-1. @workspace  take a  look at the code in the src folder. my app allows uploading pdf documents to azure storage, and using form recognizer to extract text and uses azure openai to convert the text to embeddings which are then stored in azure search. user clicks the upload button when a file is attached to trigger this. however user doesnt get any feedback that these actions are processing after they click the button or if they need to click it again. can you make it so that the interface shows a rolling animation that indicates that the file is being uploaded, disables the upload button, etc until the actions are completed and the successfully uploaded document alert is presented?
+1.@workspace take a look at the code in the src folder. my app allows uploading pdf documents to azure storage, and using form recognizer to extract text and uses azure openai to convert the text to embeddings which are then stored in azure search. user clicks the upload button when a file is attached to trigger this. however user doesnt get any feedback that these actions are processing after they click the button or if they need to click it again. can you make it so that the interface shows a rolling animationon the upload button that indicates that the file is being uploaded, disables the upload button, etc until the actions are completed and the successfully uploaded document alert is presented? make sure that the password verification logic isnt impacted by this change. let me know which part of the code to change as opposed to sending the entire file updated
 
     do i need a css file to define the "spinner-border", etc classes?
     can you give me what the entire new index.html file will look like with these changes?
