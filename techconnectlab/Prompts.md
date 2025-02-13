@@ -56,3 +56,6 @@ ok and how do i add users that should be able to upload documents to the app on 
 
 @workspace my process_pdf_upload function currently uploads the pdf and also adds the index to azure search. this means my users have to wait for files to be uploaded before they can continue using the app. i want to change this so that a unction app takes care of the index_pdf_content part of the function. how do i create the function app using the same managed identity my other services are using (sharedidentity) and has the index_pdf_content logic? i want my function to be triggered by any upload to my blob storage.
 
+
+## Closing
+*open up main.bicp and tpe*  @mermaid-chart create a chart from this bicep file
